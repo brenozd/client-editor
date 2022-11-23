@@ -107,6 +107,6 @@ $RECYCLE.BIN/
 main
 *.exe
 client-editor*
-
+.vscode/
 # End of https://www.gitignore.io/api/go,linux,macos,windows,visualstudiocode
 

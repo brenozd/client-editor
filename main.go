@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	// "encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,35 @@ var removeBattleyeHex = []byte{0x8d, 0x4d, 0x80, 0xeb, 0x0e, 0xe8, 0x2e, 0xc8}
 
 const propertyLoginWebService = "loginWebService="
 const propertyClientWebService = "clientWebService="
+
+// The RSA Key is always right after or before message "wrong type of TGameSessionMetaInfo submitted"
+// If the message beginning address is 8 byte aligned the RSA key should be right after it 
+// If the message beginning address is not 8 byte aligned the RSA key should be before it 
+func findRsaKey(tibiaClientBytes []byte) []byte {
+	var rsaKey []byte
+	// decodedDelimitier, _ := hex.DecodeString("00000000")
+	// slices := bytes.Split(tibiaClientBytes, decodedDelimitier)
+
+	messageBytes := []byte("wrong type of TGameSessionMetaInfo submitted")
+	indexMessageBegin := bytes.Index(tibiaClientBytes, messageBytes)
+	indexMessageEnd := indexMessageBegin + len(messageBytes) - 1
+
+	// Message begin isnt aligned, which means that have padding right before
+	messageBeginPadding := indexMessageBegin % 8
+	if messageBeginPadding != 0 {
+		indexMessageBegin -= messageBeginPadding
+		rsaKey = tibiaClientBytes[(indexMessageBegin - 256):(indexMessageBegin)]
+	}
+
+	// Message begin is aligned, which means that have padding have after
+	messageEndPadding := (indexMessageEnd + 1) % 8
+	if messageEndPadding != 0 {
+		indexMessageEnd += messageEndPadding
+		rsaKey = tibiaClientBytes[(indexMessageEnd + 1):(indexMessageEnd + 1 + 256)]
+	}
+
+	return rsaKey
+}
 
 func main() {
 	var currentExecutable, tibiaExe, customLoginWebService string
@@ -41,7 +71,6 @@ func main() {
 	tibiaPath, tibiaBinary := readFile(tibiaExe)
 	var originalBinarySize = len(tibiaBinary)
 
-	_, tibiaRsa := readFile("tibia_rsa.key")
 	_, otservRsa := readFile("otserv_rsa.key")
 
 	tibiaExeFileName := filepath.Base(tibiaPath)
@@ -55,15 +84,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("[INFO] Searching for Tibia RSA... \n")
-	if bytes.ContainsAny(tibiaBinary, string(tibiaRsa)) {
-		fmt.Printf("[INFO] Tibia RSA found!\n")
-		tibiaBinary = bytes.Replace(tibiaBinary, tibiaRsa, otservRsa, 1)
-		fmt.Printf("[PATCH] Tibia RSA replaced to OTServ RSA!\n")
+	fmt.Printf("[INFO] Searching for Client RSA... \n")
+	var clientRsaKey = findRsaKey(tibiaBinary)
+	if len(clientRsaKey) > 0 {
+		fmt.Printf("[INFO] Client RSA found!\n")
+		tibiaBinary = bytes.Replace(tibiaBinary, clientRsaKey, otservRsa, 1)
+		fmt.Printf("[PATCH] Client RSA replaced\n")
 	} else if bytes.ContainsAny(tibiaBinary, string(otservRsa)) {
-		fmt.Printf("[WARN] OTServ RSA already patched!\n")
+		fmt.Printf("[WARN] Client RSA already patched!\n")
 	} else {
-		fmt.Printf("[ERROR] Unable to find Tibia RSA\n")
+		fmt.Printf("[ERROR] Unable to find Client RSA\n")
 		os.Exit(1)
 	}
 
